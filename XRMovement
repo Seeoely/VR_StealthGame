@@ -2,40 +2,96 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.XR.Interaction.Toolkit;
+using Unity.XR.CoreUtils;
 
 public class XRMovement : MonoBehaviour
 {
+    private ThePauseMenu menu;
+    private XROrigin XROrigin;
+
     public ActionBasedContinuousMoveProvider CMP;
     public float jumpSpeed = 5f;
     public Transform groundCheck;
     public LayerMask groundLayer;
+    public LayerMask Environment;
     public float sprintDuration = 3f;
     public float sprintCooldown = 5f;
     public float sprintMultiplier = 1.5f;
     private float sprintTimer;
     private float activeSprintCooldown;
     private bool isSprinting = false;
-
+    private float crouchMultiplier = 2f;
+    private float crouchSpeedMultiplier = 2f;
+    public float crouchHeight = 4f;
+    //public float normalHeight = 10f;
+    private bool isCrouching;
+    public Transform playerCamera;  // Reference to the camera transform
+    
     private CharacterController controller;
     private Vector3 velocity;
     private PlayerInput playerInput;
     private InputAction sprintAction;
     private InputAction jumpAction;
+    private InputAction crouchAction;
+    private InputAction pauseAction;
     private bool isGrounded;
+    private bool canCrouch = true;
+
+    private bool canPause = true;  // Flag to control pause state
+    private float pauseCooldown = 0.2f;  // Cooldown duration
+    private float pauseTimer = 0f;  // Timer for cooldown
+    //private bool isPauseCoroutineRunning = false;
+    private bool isPauseButtonPressed = false;
+    private CapsuleCollider playerCollider;
+
+    private float center;
+    private float cam;
+    private float height;
+    private float radius; 
+    private Transform XRTransform;
+    private float Ypos;
+    private float cameraOffset;
+
 
     // Initialize components and input actions
     void Awake()
     {
+        menu = FindObjectOfType<ThePauseMenu>();
+        XROrigin = GetComponent<XROrigin>();
         controller = GetComponent<CharacterController>();
         playerInput = GetComponent<PlayerInput>();
         sprintAction = playerInput.actions["Sprint"];
         jumpAction = playerInput.actions["Jump"];
+        crouchAction = playerInput.actions["Crouch"];
+        pauseAction = playerInput.actions["Pause"]; 
+        isCrouching = false;
+        XRTransform = GetComponent<Transform>();
+
+        //playerCollider = playerTransform.GetComponent<CapsuleCollider>();
+        //cam = cameraOffset.localPosition.y;
+        center = controller.center.y;
+        height = controller.height;
+        radius = controller.radius;
+        Ypos = XRTransform.position.y;
+        cameraOffset = XROrigin.CameraYOffset;
     }
 
     private void Update()
     {
         var sprintInput = sprintAction.ReadValue<float>();
         var jumpInput = jumpAction.ReadValue<float>();
+        var crouchInput = crouchAction.ReadValue<float>();
+        var pauseInput = pauseAction.ReadValue<float>();
+
+        if (pauseInput > 0 && !isPauseButtonPressed)
+        {
+            isPauseButtonPressed = true;
+            menu.TogglePause();
+        }
+        else if (pauseInput <= 0)
+        {
+            isPauseButtonPressed = false;
+        }
 
         // Handle sprinting input and logic
         if (sprintInput > 0 && !isSprinting && activeSprintCooldown <= 0f)
@@ -55,9 +111,32 @@ public class XRMovement : MonoBehaviour
             Jump();
         }
 
+        // Handle crouching input
+        if (crouchInput > 0 && canCrouch)
+        {
+            if (!isCrouching)
+            {
+                Crouch();
+            }
+            else
+            {
+                Stand();
+            }
+        }
+
         // Apply gravity to the player
         ApplyGravity();
+
+        // Update camera height based on crouching/standing state
+        //UpdateCameraHeight();
     }
+
+    /*private IEnumerator PauseInputCooldown()
+    {
+        isPauseCoroutineRunning = true; // Set flag to true
+        yield return new WaitForSeconds(0.5f); // Delay for 0.5 seconds (adjust as needed)
+        isPauseCoroutineRunning = false; // Reset flag after delay
+    }*/
 
     // Start the sprinting process
     private void StartSprinting()
@@ -118,5 +197,48 @@ public class XRMovement : MonoBehaviour
 
         // Move the character controller with the calculated velocity
         controller.Move(velocity * Time.deltaTime);
+    }
+
+    private void Crouch()
+    {
+        UnityEngine.Debug.Log("Crouch");
+        isCrouching = true;
+        CMP.moveSpeed /= crouchSpeedMultiplier;
+        XRTransform.position = new Vector3(0, .5f, 0);
+        XROrigin.CameraYOffset = .5f;
+        //controller.center = new Vector3(controller.center.x, -1f, controller.center.z);
+        //controller.height = .8f;
+        controller.radius = .40f;
+
+        // radius = .65  height = 1  center = -0.425  cam = 1.25
+    }
+
+    private void Stand()
+    {
+        UnityEngine.Debug.Log("Attempting to stand");
+
+        // Define the position to start the raycast (from player's current head when crouching)
+        Vector3 rayOrigin = XRTransform.position + Vector3.up * (controller.height / 2);
+
+        // Define the max distance for the raycast (distance from crouched position to full standing height)
+        float rayDistance = height - (controller.height / 2);
+
+        // Perform the raycast upwards to check for obstacles
+        if (!Physics.Raycast(rayOrigin, Vector3.up, rayDistance, Environment))
+        {
+            // No obstacles detected, the player can stand up
+            isCrouching = false;
+            CMP.moveSpeed *= crouchSpeedMultiplier;
+            XRTransform.position = new Vector3(XRTransform.position.x, Ypos, XRTransform.position.z);
+            XROrigin.CameraYOffset = 2.5f;  // Adjust as needed based on your camera system
+            controller.height = height;  // Set controller height back to standing height
+            controller.radius = radius;
+            UnityEngine.Debug.Log("Standing up");
+        }
+        else
+        {
+            // Obstacle detected, player can't stand up
+            UnityEngine.Debug.Log("Cannot stand up, obstacle detected above");
+        }
     }
 }
