@@ -1,88 +1,168 @@
+using System.Collections;
 using UnityEngine;
+using UnityEngine.AI;
 
 public class EnemyMovement : MonoBehaviour
 {
-    public float movementSpeed;
-    private Transform player;
-    private Rigidbody rb;
-    public float rotationSpeed = 5f;
-    public float distanceToPlayer = 10f;
+    private Gun gun;
+    public float runningMovementSpeed;
+    public float detectionDistance;
+    public LayerMask obstacleMask;
+    public float loseSightDelay = 2f;
+    public float wanderRadius = 10f;
+    private float wanderInterval;
 
-    // Initialize the player reference and rigidbody component
+    private Transform player;
+    private NavMeshAgent navAgent;
+    private Animator animator;
+    private bool follow = false;
+    private float timeSinceLastSeen = 0f;
+
     private void Start()
     {
         player = GameObject.FindGameObjectWithTag("Player").transform;
-        rb = GetComponent<Rigidbody>();
+        navAgent = GetComponent<NavMeshAgent>();
+        animator = GetComponent<Animator>();
+        gun = FindObjectOfType<Gun>();
+        
+        follow = false; // Ensure enemies start wandering
+        StartCoroutine(Wander());
     }
 
-    // Update the enemy's movement and rotation every frame
-    private void FixedUpdate()
+    private void Update()
     {
-        // Check if the enemy is a zombie
+        UpdateAnimation();
+
         if (gameObject.CompareTag("Zombie"))
         {
-            // Check if the player is not null
-            if (player != null)
+            if (gun.gungrabbed)
             {
-                // Calculate the direction to the player
-                Vector3 direction = player.position - transform.position;
-                direction.Normalize();
-
-                // Set the enemy's velocity to move towards the player
-                rb.velocity = direction * movementSpeed;
-
-                // Rotate the enemy to face the direction of movement
-                RotateTowardsMovementDirection();
+                detectionDistance += 5;
+                runningMovementSpeed += 5;
+                loseSightDelay += 1000;
+                navAgent.speed += 3;
+            }
+            else
+            {
+                HandleFollowing();
             }
         }
 
-        // Check if the enemy is a skeleton
         if (gameObject.CompareTag("Skeleton"))
         {
-            // Calculate the desired position for the skeleton
-            Vector3 desiredPosition = player.position - transform.forward * distanceToPlayer;
-            desiredPosition.y = 0;
-
-            // Move the skeleton towards the player if they are within the distance threshold
-            if (Vector3.Distance(transform.position, player.position) <= distanceToPlayer)
-            {
-                transform.position = Vector3.Lerp(transform.position, desiredPosition, Time.deltaTime);
-            }
-
-            // Calculate the direction to the player
-            Vector3 directionToPlayer = player.position - transform.position;
-            rb.velocity = directionToPlayer.normalized * movementSpeed;
-            directionToPlayer.y = 0f; // Keep the rotation in the horizontal plane
-
-            // Rotate the skeleton to face the player
-            transform.rotation = Quaternion.LookRotation(directionToPlayer);
+            HandleFollowing();
         }
-
-        /*if (gameObject.CompareTag("Slime"))
-        {
-            // Move the slime towards the player
-            Vector3 desiredPosition = player.position - transform.forward * distanceToPlayer;
-            transform.position = Vector3.Lerp(transform.position, desiredPosition, Time.deltaTime);
-
-            // Rotate the slime to face the direction of movement
-            RotateTowardsMovementDirection();
-        }*/
     }
 
-    // Rotate the enemy towards the direction of movement
-    private void RotateTowardsMovementDirection()
+    private void UpdateAnimation()
     {
-        // Get the current velocity of the enemy
-        Vector3 velocity = rb.velocity;
-
-        // Check if the enemy is moving
-        if (velocity != Vector3.zero)
+        if (navAgent.velocity.magnitude > 0.1f)
         {
-            // Calculate the rotation to face the direction of movement
-            Quaternion targetRotation = Quaternion.LookRotation(velocity.normalized);
-
-            // Smoothly rotate the enemy towards the target rotation
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            animator.SetBool("Moving", true);
         }
+        else
+        {
+            animator.SetBool("Moving", false);
+        }
+    }
+
+    private void HandleFollowing()
+    {
+        if (Vector3.Distance(transform.position, player.position) <= detectionDistance && LOS())
+        {
+            AggressiveState();
+        }
+        else
+        {
+            timeSinceLastSeen += Time.deltaTime;
+
+            if (timeSinceLastSeen > loseSightDelay && follow)
+            {
+                Debug.Log("Lost sight of player. Starting to wander.");
+                follow = false;
+                StartWandering();
+            }
+        }
+    }
+
+    private bool LOS()
+    {
+        Vector3 directionToPlayer = (player.position - transform.position).normalized;
+        float angleToPlayer = Vector3.Angle(transform.forward, directionToPlayer);
+        float fieldOfViewAngle = 135f;
+
+        if (angleToPlayer < fieldOfViewAngle / 2)
+        {
+            float distanceToPlayer = Vector3.Distance(transform.position, player.position);
+            if (!Physics.Raycast(transform.position + Vector3.up, directionToPlayer, distanceToPlayer, obstacleMask))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void AggressiveState()
+    {
+        Debug.Log("Entering Aggressive State");
+        follow = true;
+        timeSinceLastSeen = 0f;
+        StopAllCoroutines();
+        navAgent.speed = runningMovementSpeed;
+
+        if (Vector3.Distance(transform.position, player.position) > navAgent.stoppingDistance)
+        {
+            navAgent.SetDestination(player.position);
+        }
+        else
+        {
+            navAgent.ResetPath();
+            RotateTowards(player.position);
+        }
+    }
+
+    private void RotateTowards(Vector3 targetPosition)
+    {
+        Vector3 direction = (targetPosition - transform.position).normalized;
+        Quaternion lookRotation = Quaternion.LookRotation(new Vector3(direction.x, 0, direction.z));
+        transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, Time.deltaTime * 5f);
+    }
+
+    private void StartWandering()
+    {
+        StopAllCoroutines();
+        StartCoroutine(Wander());
+    }
+
+    private IEnumerator Wander()
+    {
+        Debug.Log("Starting to wander.");
+
+        while (!follow)
+        {
+            Vector3 randomTarget = GetRandomWanderTarget();
+            navAgent.SetDestination(randomTarget);
+
+            wanderInterval = Random.Range(5f, 10f);
+            //Debug.Log($"Wandering to {randomTarget} for {wanderInterval} seconds.");
+
+            yield return new WaitForSeconds(wanderInterval);
+        }
+    }
+
+    private Vector3 GetRandomWanderTarget()
+    {
+        Vector3 randomDirection = Random.insideUnitSphere * wanderRadius;
+        randomDirection += transform.position;
+
+        if (NavMesh.SamplePosition(randomDirection, out NavMeshHit hit, wanderRadius, NavMesh.AllAreas))
+        {
+            //Debug.Log($"Found valid wander target at {hit.position}");
+            return hit.position;
+        }
+
+        Debug.Log("Failed to find a valid wander target. Staying in place.");
+        return transform.position;
     }
 }
