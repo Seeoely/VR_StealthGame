@@ -1,0 +1,49 @@
+using System.Collections;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.XR.Interaction.Toolkit;
+
+public class Goal : MonoBehaviour
+{
+    public GameObject Exit1;
+    public GameObject Exit2;
+    public GameObject Exit3;
+
+    public Vector3 openDoorRotation;
+    private Quaternion targetRotation;
+
+    private void Start()
+    {
+        targetRotation = Quaternion.Euler(openDoorRotation);
+    }
+
+    private void OnEnable()
+    {
+        // Add listener to the interaction event
+        var interactable = GetComponent<XRGrabInteractable>();
+        if (interactable != null)
+        {
+            interactable.selectEntered.AddListener(OnPickedUp);
+        }
+    }
+
+    private void OnDisable()
+    {
+        // Remove listener to avoid memory leaks
+        var interactable = GetComponent<XRGrabInteractable>();
+        if (interactable != null)
+        {
+            interactable.selectEntered.RemoveListener(OnPickedUp);
+        }
+    }
+
+    private void OnPickedUp(SelectEnterEventArgs args)
+    {
+        // Destroy the goal and the exits when picked up
+        Debug.Log("Player interacted with the goal.");
+        Destroy(gameObject);
+        Destroy(Exit1);
+        Destroy(Exit2);
+        Exit3.transform.rotation = targetRotation;
+    }
+}
