@@ -1,0 +1,68 @@
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class ThePauseMenu : MonoBehaviour
+{
+    public bool isPaused = false;
+    [SerializeField] GameObject pauseMenuPanel; // Reference to the pause menu UI
+    [SerializeField] GameObject settingsPanel;  // Reference to the settings menu UI
+    [SerializeField] GameObject WinScreen;
+
+    void Start()
+    {
+        // Ensure both menus are not visible at the start of the game
+        if (pauseMenuPanel != null) pauseMenuPanel.SetActive(false);
+        if (settingsPanel != null) settingsPanel.SetActive(false);
+        if (settingsPanel != null) WinScreen.SetActive(false);
+    }
+
+    public void TogglePause()
+    {
+        isPaused = !isPaused; // Toggle pause state
+        if (pauseMenuPanel != null) 
+        {
+            pauseMenuPanel.SetActive(isPaused); // Show or hide the pause menu
+        }
+
+        // Delay setting Time.timeScale slightly to avoid issues
+        if (isPaused)
+        {
+            Time.timeScale = 0f; // Freeze game
+        }
+        else
+        {
+            Time.timeScale = 1f; // Resume game
+        }
+    }
+
+
+    public void Settings()
+    {
+        // Deactivate the pause menu and activate the settings menu
+        if (pauseMenuPanel != null) pauseMenuPanel.SetActive(false);
+        if (settingsPanel != null) settingsPanel.SetActive(true);
+    }
+
+    public void Back()
+    {
+        // Go back to the pause menu from settings
+        if (settingsPanel != null) settingsPanel.SetActive(false);
+        if (pauseMenuPanel != null) pauseMenuPanel.SetActive(true);
+    }
+
+    public void Quit(int sceneID)
+    {
+        // Resume the game before quitting
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(sceneID);
+    }
+
+    private void OnCollisionEnter(Collision collision)
+    {
+        if (collision.gameObject.CompareTag("End"))
+            {
+                UnityEngine.Debug.Log("WIN");
+                if (settingsPanel != null) WinScreen.SetActive(true);
+            }
+    }
+}
