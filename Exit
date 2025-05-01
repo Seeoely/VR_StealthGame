@@ -1,0 +1,51 @@
+using UnityEngine;
+using UnityEngine.XR.Interaction.Toolkit;
+using System.Collections;
+
+public class OpenTwoDoorsOnGrab : MonoBehaviour
+{
+    public XRGrabInteractable grabInteractable; // Assign the interactable in the inspector
+    public GameObject door1; // The first door to open
+    public GameObject door2; // The second door to open
+    public Vector3 openDoor1Rotation; // Desired rotation to open the first door
+    public Vector3 openDoor2Rotation; // Desired rotation to open the second door
+    public float openSpeed = 2f; // Speed at which the doors open
+
+    private Quaternion originalRotation1;
+    private Quaternion originalRotation2;
+
+    private void Start()
+    {
+        originalRotation1 = door1.transform.rotation;
+        originalRotation2 = door2.transform.rotation;
+
+        // Subscribe to the SelectEntered event to detect when the interactable is grabbed
+        grabInteractable.selectEntered.AddListener((args) => OnGrab(args));
+    }
+
+    private void OnGrab(SelectEnterEventArgs args)
+    {
+        // Open both doors when the object is grabbed
+        StartCoroutine(OpenDoor(door1, openDoor1Rotation));
+        StartCoroutine(OpenDoor(door2, openDoor2Rotation));
+    }
+
+    private IEnumerator OpenDoor(GameObject door, Vector3 targetRotationVector)
+    {
+        Quaternion targetRotation = Quaternion.Euler(targetRotationVector);
+
+        while (Quaternion.Angle(door.transform.rotation, targetRotation) > 0.1f)
+        {
+            door.transform.rotation = Quaternion.Slerp(door.transform.rotation, targetRotation, Time.deltaTime * openSpeed);
+            yield return null;
+        }
+
+        door.transform.rotation = targetRotation;
+    }
+
+    private void OnDestroy()
+    {
+        // Clean up the event listener when the object is destroyed
+        grabInteractable.selectEntered.RemoveListener((args) => OnGrab(args));
+    }
+}
